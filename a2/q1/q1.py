@@ -1,4 +1,5 @@
 import numpy as np
+#test
 
 def generator(seed, N, M, K, W, alpha_bg, alpha_mw):
     # Data generator. 
