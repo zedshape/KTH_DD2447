@@ -31,23 +31,27 @@ def generator(seed, N, M, K, W, alpha_bg, alpha_mw):
     R_samplespace =  M - W + 1 
     R_truth = np.random.randint(R_samplespace, size = N)      # integers from discrete uniform distribution
 
-    # Generate D ??
 
-    D[0] = np.random.randint(K, size = M)   #initial state s0
+    # generate theta
+    for i in range(W):
+        theta_mw[i] = np.random.dirichlet(alpha_mw)
 
-    for state in range(1,N):
+    theta_bg = np.random.dirichlet(alpha_bg)
+
+    # Generate D 
+    for state in range(N):
         for position in range(M):
-            if position == R_truth[state]:  #start position for mw
-                D[state][position] = 
+            #print(" position = " + str(position) + " R_truth = " + str(R_truth[state]))
 
-    # Generate theta_mw
+            if position >= R_truth[state] and position < R_truth[state] + W:
+                #print("mw")
+                dp = np.nonzero(np.random.multinomial(1,theta_mw[position - R_truth[state]]))[0]
+            else:
+                #print ("bg")
+                dp = np.nonzero(np.random.multinomial(1,theta_bg))[0]
 
-    # Generate theta_bg (shape K)
-
-    
-
+            D[state][position] = dp
    
-
     # Generate D, R_truth, theta_bg, theta_mw. Please use the specified data types and dimensions. 
 
     return D, R_truth, theta_bg, theta_mw
@@ -62,13 +66,37 @@ def gibbs(D, alpha_bg, alpha_mw, num_iter, W):
     R = np.zeros((num_iter, N)) # Store samples for start positions of magic word of each sequence
 
     # YOUR CODE:
-
     # Implement gibbs sampler for start positions. 
+
+    # s0 initial state
+    M = D[0].shape[0]
+    B = N*(M-W)
+
+    # marginal likelihood for bg
+    alpha_bg_sum = 0
+    alpha_mw_sum = 0
+
+    for k in range K:
+        alpha_bg_sum += alpha_bg[k]
+        alpha_mw_sum += alpha_mw[k]
+
+
+    #TODO skriv formlerna
+    x = math.gamma(5)
+    print(x)
+
+
+
  
-    # R has one starting position for every sequence s1,...,sn on every row, for every iteration i_1,...,i_num_iter
+    
 
     for n in range(num_iter):
-        pass    #returns integers from discrete uniform distribution
+
+
+
+
+
+        pass  
     return R
 
 
