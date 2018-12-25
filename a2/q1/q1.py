@@ -1,5 +1,6 @@
 import numpy as np
 import math
+import matplotlib.pyplot as plt
 
 def generator(seed, N, M, K, W, alpha_bg, alpha_mw):
     # Data generator. 
@@ -64,41 +65,93 @@ def gibbs(D, alpha_bg, alpha_mw, num_iter, W):
     
     N = D.shape[0]
     R = np.zeros((num_iter, N)) # Store samples for start positions of magic word of each sequence
+    print("len R " + str(len(R)))
 
     # YOUR CODE:
     # Implement gibbs sampler for start positions. 
-
-    # s0 initial state
+  
     M = D[0].shape[0]
     B = N*(M-W)
+    K = alpha_mw.shape[0]
 
-    # marginal likelihood for bg
-    alpha_bg_sum = 0
-    alpha_mw_sum = 0
+    # randomly setting up initial state r0
+    R0 = np.random.randint((M - W + 1), size = N)
+    R02 = np.random.randint((M - W + 1), size = N)
 
-    for k in range K:
-        alpha_bg_sum += alpha_bg[k]
-        alpha_mw_sum += alpha_mw[k]
+    samples = []
+    samples.append(R02)      #starting sequence
+
+   # plot = plt.figure()
+
+    for n in range(num_iter):  
+        positions = []        # this will be a row in R       
+        current_state=samples[-1]   # the last sampled sequence
+
+        for s in range(N):
+            pos_proba = []
+        
+            for r_i in range(M - W + 1):         # loop over possible start positions
+                count_mw = np.ones((W,K))         # counting occurances of each element at each position in mw
+                count_bg = np.ones(K)             # counting occurances of elements in bg
+
+                seq_bg = D
+                seq_mw = np.zeros((N,W))
+                for a in range(W):
+                    seq_mw[:,a] = D[:,r_i+a]
+                    seq_bg = np.delete(seq_bg,r_i,axis=1)
+                seq_bg = np.delete(seq_bg,s,axis=0)
+                seq_mw = np.delete(seq_mw,s,axis=0)
+                seq_mw = np.delete(seq_mw,1,axis=1)
+                    
+                for c in range(N-1):
+                    for m in range(M-W):
+                    #counts character occurance for char in bg
+                        count_bg[seq_bg[c][m]] += 1
+                    
+                    #counts character occurance for every char in every position of mw
+                    for w in range(W-1):
+                        count_mw[w][seq_mw[c][w]] +=1
+
+                C = (math.gamma(np.sum(alpha_bg)) / math.gamma(B + np.sum(alpha_bg)))
+
+                class_probs = [ math.gamma(count_bg[k] + alpha_bg[k]) / math.gamma(alpha_bg[k])  for k in range(K)]
+        
+                p_bg = C * np.prod(class_probs) 
+
+                C2 = math.gamma(np.sum(alpha_mw))/math.gamma(N * W + np.sum(alpha_mw))
+
+                class_probs_j = []
+                for j in range(W):
+                    class_probs_jk = [ math.gamma(count_mw[j][k] + alpha_mw[k]) / math.gamma(alpha_mw[k])  for k in range(K) ]
+                    class_probs_jk = C2 * np.prod(class_probs_jk) 
+                    class_probs_j.append(class_probs_jk)
+
+                p_mw = class_probs_j
+                print(class_probs_j)
+                p =  p_bg + np.prod(p_mw) 
+                
+                pos_proba.append(p)
+
+            #normalize
+            p = np.asarray(pos_proba)
+            #p = np.exp(p - np.max(p))
+            p = p / np.sum(p)
 
 
-    #TODO skriv formlerna
-    x = math.gamma(5)
-    print(x)
+            multi_samp = np.random.multinomial(1,p)
+            position = np.argmax(multi_samp)        
+            current_state[s] = position
+            positions.append(position)
 
+            samples.append(np.array(positions))
 
+        R[n]= np.array(positions)
 
- 
-    
-
-    for n in range(num_iter):
-
-
-
-
-
-        pass  
     return R
 
+
+    #plot
+    
 
 def main():
     seed = 123
@@ -110,7 +163,7 @@ def main():
     alpha_bg = np.ones(K)
     alpha_mw = np.ones(K) * 0.9
 
-    num_iter = 1000
+    num_iter = 1000 #CHANGE BACK TO 1000
     
     print("Parameters: ", seed, N, M, K, W, num_iter)
     print(alpha_bg)
@@ -131,6 +184,37 @@ def main():
 
 
     # YOUR CODE:
+    plt.title("TEST")
+    step = 1
+    x_axis = np.zeros(num_iter/step)
+    y_axis = np.zeros(num_iter/step)
+    #print(x_axis.shape)
+    #print(y_axis.shape)
+
+    # plot, axes = plt.subplots(6,1)
+    plt.xlabel('Iteration')
+    plt.ylabel('R[n]')
+
+
+    pos = 6
+    i =0
+    for n in range(num_iter):
+        #if n % (step) == 0:
+        #if n >= 900:
+            #print(i)
+            x_axis[i] = n
+            y_axis[i] = R[n][pos]
+            #print(R[n])
+            i +=1
+
+    #  print(x_axis)
+    #  print(y_axis)
+    t = np.ones(K) * R_truth[pos]
+    plt.grid(True)
+    plt.axis([x_axis[0], i*step, 0, M])
+    plt.plot(x_axis, y_axis, color = "b" )
+    #plt.plot(x_axis , t, color ="r")
+    plt.show()
     # Analyze the results. Check for the convergence. 
 
 if __name__ == '__main__':  #autoruns main
