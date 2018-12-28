@@ -65,7 +65,7 @@ def gibbs(D, alpha_bg, alpha_mw, num_iter, W):
     
     N = D.shape[0]
     R = np.zeros((num_iter, N)) # Store samples for start positions of magic word of each sequence
-    print("len R " + str(len(R)))
+    #print("len R " + str(len(R)))
 
     # YOUR CODE:
     # Implement gibbs sampler for start positions. 
@@ -76,34 +76,48 @@ def gibbs(D, alpha_bg, alpha_mw, num_iter, W):
 
     # randomly setting up initial state r0
     R0 = np.random.randint((M - W + 1), size = N)
-    R02 = np.random.randint((M - W + 1), size = N)
+    print("R0 = ")
+    print(R0)
+    #R02 = np.random.randint((M - W + 1), size = N)
 
     samples = []
-    samples.append(R02)      #starting sequence
-
-   # plot = plt.figure()
+    samples.append(R0)      #starting sequence
 
     for n in range(num_iter):  
-        positions = []        # this will be a row in R       
+        positions = []       # this will be a row in R       
         current_state=samples[-1]   # the last sampled sequence
 
         for s in range(N):
             pos_proba = []
         
-            for r_i in range(M - W + 1):         # loop over possible start positions
+            for r_i in range(M - W):         # loop over possible start ANDRA EV TILL M_W!
+                #current_state = list(current_state)
+                current_state[s] = r_i
                 count_mw = np.ones((W,K))         # counting occurances of each element at each position in mw
                 count_bg = np.ones(K)             # counting occurances of elements in bg
 
                 seq_bg = D
                 seq_mw = np.zeros((N,W))
-                for a in range(W):
-                    seq_mw[:,a] = D[:,r_i+a]
-                    seq_bg = np.delete(seq_bg,r_i,axis=1)
-                seq_bg = np.delete(seq_bg,s,axis=0)
-                seq_mw = np.delete(seq_mw,s,axis=0)
-                seq_mw = np.delete(seq_mw,1,axis=1)
-                    
-                for c in range(N-1):
+
+                #for a in range(W):
+                #    pass
+                    #seq_mw[:,a] = D[:,r_i+a]
+                    #seq_bg = np.delete(seq_bg,r_i,axis=1)
+
+                #print(D[n][0:current_state[a]].shape)
+                #print(D[n][current_state[a]+W:].shape)
+                #print(current_state)
+
+                #seq_bg = [ D[n][0:current_state[a]] + D[n][current_state[a]+W:] for a in range(N)]
+                seq_bg = np.asarray([ np.concatenate((D[a][0:current_state[a]], D[a][current_state[a]+W:]), axis = 0) for a in range(N)])
+                seq_mw = np.asarray([ D[a][current_state[a]:current_state[a]+W] for a in range(N)])
+
+           
+               # seq_bg = np.delete(seq_bg,s,axis=0)
+               #seq_mw = np.delete(seq_mw,s,axis=0)
+               # seq_mw = np.delete(seq_mw,1,axis=1)
+                
+                for c in range(N-1):        #excluding current sequence and column
                     for m in range(M-W):
                     #counts character occurance for char in bg
                         count_bg[seq_bg[c][m]] += 1
@@ -116,36 +130,52 @@ def gibbs(D, alpha_bg, alpha_mw, num_iter, W):
 
                 class_probs = [ math.gamma(count_bg[k] + alpha_bg[k]) / math.gamma(alpha_bg[k])  for k in range(K)]
         
-                p_bg = C * np.prod(class_probs) 
+                p_bg = math.log(C) + math.log(np.prod(class_probs))
 
                 C2 = math.gamma(np.sum(alpha_mw))/math.gamma(N * W + np.sum(alpha_mw))
 
                 class_probs_j = []
                 for j in range(W):
                     class_probs_jk = [ math.gamma(count_mw[j][k] + alpha_mw[k]) / math.gamma(alpha_mw[k])  for k in range(K) ]
-                    class_probs_jk = C2 * np.prod(class_probs_jk) 
+                    class_probs_jk = math.log(C2) + math.log(np.prod(class_probs_jk) )
                     class_probs_j.append(class_probs_jk)
 
                 p_mw = class_probs_j
-                print(class_probs_j)
-                p =  p_bg + np.prod(p_mw) 
+                #print(p_mw)
+                #print(class_probs_j)
+                p =  p_bg + np.sum(p_mw) 
+                #print(p)
                 
                 pos_proba.append(p)
 
             #normalize
             p = np.asarray(pos_proba)
-            #p = np.exp(p - np.max(p))
-            p = p / np.sum(p)
+            p = np.exp(p - np.max(p))
+            p = p/np.sum(p)
+            #p = p / np.sum(p)
+            #print(p)
+            #print(np.sum(p))
+            
+
+            #print(p)
+            #startpos = np.unravel_index(np.argmax(p), p.shape)[0]
+            #print(startpos)
 
 
             multi_samp = np.random.multinomial(1,p)
-            position = np.argmax(multi_samp)        
+            #print(multi_samp)
+
+            #position = np.unravel_index(np.argmax(p), p.shape)[0]
+            position = np.argmax(multi_samp)
             current_state[s] = position
             positions.append(position)
-
-            samples.append(np.array(positions))
+            #print(positions)
+                
+        samples.append(np.array(positions))
 
         R[n]= np.array(positions)
+    print(R[n])
+    print(R)
 
     return R
 
@@ -184,8 +214,8 @@ def main():
 
 
     # YOUR CODE:
-    plt.title("TEST")
-    step = 1
+    
+    step = 10
     x_axis = np.zeros(num_iter/step)
     y_axis = np.zeros(num_iter/step)
     #print(x_axis.shape)
@@ -196,23 +226,28 @@ def main():
     plt.ylabel('R[n]')
 
 
-    pos = 6
-    i =0
-    for n in range(num_iter):
-        #if n % (step) == 0:
-        #if n >= 900:
-            #print(i)
-            x_axis[i] = n
-            y_axis[i] = R[n][pos]
-            #print(R[n])
-            i +=1
+    #ax1 = plt.subplot(2011)
 
-    #  print(x_axis)
-    #  print(y_axis)
-    t = np.ones(K) * R_truth[pos]
-    plt.grid(True)
-    plt.axis([x_axis[0], i*step, 0, M])
-    plt.plot(x_axis, y_axis, color = "b" )
+    for pos in range(1):
+        plt.title("TRY: " + str(pos))
+
+        i =0
+        for n in range(num_iter):
+            if n % (step) == 0:
+            #if n >= 900:
+                #print(i)
+                x_axis[i] = n
+                y_axis[i] = R[n][pos]
+                #print(R[n])
+                i +=1
+
+        #  print(x_axis)
+        #  print(y_axis)
+        t = np.ones(K) * R_truth[pos]
+        #plt.grid(True)
+        plt.axis([x_axis[0], i*step, 0, M])
+        print("plot " + str(pos))
+        plt.plot(x_axis, y_axis)
     #plt.plot(x_axis , t, color ="r")
     plt.show()
     # Analyze the results. Check for the convergence. 
