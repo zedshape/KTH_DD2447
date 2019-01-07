@@ -3,23 +3,21 @@ import numpy as np
 import pdb
 import math
 
-def conditional_likelihood(o, G, start, p): 
+def conditional_likelihood(o, G, start, p, X): 
 	states = []
 	entries = []
-	states.append(start[0])
+	states.append(start)
 	entries.append(0)				#entry directions
 
+	# initial state positions
 	s1_r = states[0].row
-	s1_c = states[0].col #initial positions
-
-	X = [] # store switch states
-	X.append(sample_switch_states(G.lattice_size)) # generate initial switch state
+	s1_c = states[0].col 
 
 	T = len(o)		#number of observations
-	S = G.lattice_size **2 	# of positions
-
+	P = G.lattice_size **2 	# of positions
+	no_of_edges = len(start.edges)
 	lattice_dim = (G.lattice_size, G.lattice_size)
-	matrix_dim = (2, G.lattice_size**2, G.lattice_size**2)
+	matrix_dim = (2, P, P)
 
 	#compute transition probability matrix
 	t_prob = np.zeros(matrix_dim)  
@@ -28,48 +26,26 @@ def conditional_likelihood(o, G, start, p):
 	for i in range(G.lattice_size):
 		for j in range(G.lattice_size):	
 			cur_node = G.get_node(i,j)		# current node
-			cur_ss = X[0][i][j]				# current switch state
-
+			cur_ss = X[i][j]				# current switch state
 			edges = cur_node.edges 			# edges of current node
 			exit_edges = (cur_node.get_edge(0), cur_node.get_edge(cur_ss))		# can exit through zero or switch state
-			#print(exit_edges)
-			if i == 2:
-				if j== 0:
-					print("2,0")
-					print(G.get_node(i,j))
-					print(G.get_node(i,j).edges)
 
-			for e in range(len(exit_edges)):
+			for e in range(len(exit_edges)):		# possible next nodes
 				i_next, j_next = validate_idx(i + exit_edges[e][0], j + exit_edges[e][1], G.lattice_size)		#index of next node
-				
 				next_node = G.get_node(i_next, j_next)
 
 				first_index = np.ravel_multi_index((i,j),lattice_dim)
 				second_index = np.ravel_multi_index((i_next,j_next),lattice_dim)
 
-				#print("________________")
-				#print("e " + str(e))
-				#print("current_node: ")
-				#print(cur_node)
-
-				#print("next_node: ")
-				#print(next_node)
-
-				#print("Current node switch state: " + str(cur_ss))
-
-				t_prob[e][first_index][second_index] = 1			# e = 0 if zero exit, e=1 if switch state exit
-
-	print(t_prob)
-	print(X[0])
+				t_prob[e][first_index][second_index] = 1			# e = 0 if zero exit (entry from {1,2,3} ), e=1 if switch state exit (entry from 0)
 
 	# computing the path, using start position and transition probability matrix
-
-	e1 = states[-1].get_edge(X[0][s1_r][s1_c])		#starts with following switch state
-	states.append(G.get_node(s1_r + e1[0], s1_c + e1[1]))		#second state
+	e1 = states[-1].get_edge(X[s1_r][s1_c])		#starts with following switch state
+	r,c = validate_idx(s1_r + e1[0],s1_c + e1[1], G.lattice_size)
+	states.append(G.get_node(r,c))	#second state
 	entries.append(G.get_entry_direction(states[-2], states[-1]))
 
 	for t in range(2,T): 
-
 		e_dir = G.get_entry_direction(states[-2], states[-1])
 		entries.append(e_dir)
 
@@ -80,49 +56,45 @@ def conditional_likelihood(o, G, start, p):
 
 		if e_dir > 0:
 			i = np.unravel_index(t_prob[0][i_long].argmax(), lattice_dim)		# use switch state
-			#print("zero-matrix")
 		else:
 			i = np.unravel_index(t_prob[1][i_long].argmax(), lattice_dim)		# exit from zero
-			#print("ss-matrix")
+
 		states.append(G.get_node(i[0],i[1]))
 
 	#compute emission probability matrix
-	e_prob = np.zeros(((G.lattice_size**2, len(edges))))  # t_prob[obs_i][obs_j][i][j]
+	e_prob = np.zeros(((2, P, len(edges))))  # t_prob[obs_i][obs_j][i][j]
 
-	for t in range(T):
-		r = states[t].row
-		c = states[t].col
-		ss_t = X[0][r][c]
+	for pos in range(P):
+		r,c = np.unravel_index(pos,lattice_dim)	# row and col indices
+		ss_t = X[r][c]						# switch state exit
+		
+		# probability of incorrect observation is p, thus probability of a specific incorrect observation is p/3  (--> total obs prob is always one)
+		e_prob[0][pos] = [p/3 for i in range(no_of_edges)]
+		e_prob[1][pos] = [p/3 for i in range(no_of_edges)]
 
-		i = np.ravel_multi_index((r,c),lattice_dim)
+		# probability of correct observation *overwriting*
+		e_prob[0][pos][0] = 1-p
+		e_prob[1][pos][ss_t] = 1-p
 
-		if entries[t] == 0:
-			if o[t] == ss_t:
-				print("match")
-				e_prob[i][ss_t] = 1-p
-			else:
-				e_prob[i][ss_t] = p
-
+	#calculate conditional probability
 	cond_prob = 0
-
-	for t in range(1,T):
+	for t in range(1,T):			# normalize?
 		statesum = 0
-		for st in range(len(states)):
-			i1 = np.ravel_multi_index((states[st-1].row,states[st-1].col),lattice_dim)
-			i2 = np.ravel_multi_index((states[st].row,states[st].col),lattice_dim)
+		#print("_________NEW T_________")
+		i1 = np.ravel_multi_index((states[t-1].row,states[t-1].col),lattice_dim)		#index of s(t-1)
+		
+		for st in range(P):
+			i2 = np.ravel_multi_index((states[st].row,states[st].col),lattice_dim)			#index of s(t)
 
-			if entries[st] >0:
-				output_matrix = 0
-			else:
-				output_matrix = 1
+			if entries[st-1] > 0:		# if entering s(t-1) from direction{1,2,3}, path will follow zero-direction to s(t)
+				output_matrix = 0		
+			else:						#if entering s(t-1) from zero-direction, path will follow switch state to s(t)
+				output_matrix = 1		
 
-			statesum += (e_prob[i2][(X[0][states[st].row][states[st].col])]) * t_prob[output_matrix][i1][i2]
-		cond_prob += math.log(statesum)
-		print(cond_prob)	
-
-	print(cond_prob)
-	print(math.exp(cond_prob))
-
+			statesum += (e_prob[output_matrix][i2][(X[states[st].row][states[st].col])]) * t_prob[output_matrix][i1][i2]
+		if statesum != 0:
+			cond_prob += math.log(statesum)
+	return(cond_prob)	
 
 # o: observations
 # n_lattice: size of the lattice
@@ -132,12 +104,66 @@ def mh_w_gibbs(o, G, num_iter, error_prob=0.1):			#metropolis-hastings
 	X = [] # store switch states
 	X.append(sample_switch_states(G.lattice_size)) # generate initial switch state
 	s.append(sample_start_pos(G)) # set the initial start position as the one at G[0][0]
+
+	probabilities = []
+	probabilities.append(conditional_likelihood(o,G,s[0],error_prob, X[0]))
+
+	#variables created
+	lattice_dim = (G.lattice_size, G.lattice_size)		#lattice dimension, used for index conversion
+	no_of_ss = G.lattice_size		# number of possible switch states {1,2,3}
+	X_prev = X[0]		# initial sample of X
+	s_prev = s[0]
+	s_prev_index = np.ravel_multi_index((s[0].row,s[0].col),lattice_dim)  # index of initial sample of start position
+
+	X_count = np.ones((G.lattice_size**2, len(X[0])))		# counts occurances of each switch state at each position
+	s_count = np.ones(G.lattice_size**2)			# counts number of times each index is start position
+
+	for n in range(num_iter):		# change back to num_iter
+		# count occurances in previous sample
+		s_count[s_prev_index] += 1						#add count
+		s_count_n = s_count * 1/np.sum(s_count)		#normalize
+
+		s_new_index = np.nonzero(np.random.multinomial(1, s_count_n , size=1))[1][0]	#draw sample from categorical distribution
+		s_r,s_c = np.unravel_index(s_new_index, lattice_dim)
+		s_new = G.get_node(s_r, s_c)
+
+		for x_row in range(len(X_prev)):		# count occurances of every switch state at every state in sequence
+			for x_col in range(len(X_prev)):
+				X_i_long = np.ravel_multi_index((x_row,x_col),lattice_dim)
+				X_count[X_i_long][(X_prev[x_row][x_col])-1] += 1	# index 0 --> ss=1 etc
+		
+		X_count_n = [X_count[i][:] * 1/np.sum(X_count[i][:]) for i in range(G.lattice_size**2)]			#normalize
+
+		X_new = np.zeros(np.shape(X_prev))
+
+		for x in range(len(X_count)):				# creating new sample
+			sample_ss_index = np.random.multinomial(1, X_count_n[x], size = 1)
+			sample_ss = np.nonzero(sample_ss_index)[1][0]
+			r,c = np.unravel_index(x, lattice_dim)
+			X_new[r][c] = int(sample_ss+1 )
+
+		X_new = X_new.astype(int)
+
+		old_prob = conditional_likelihood(o,G,s_prev,error_prob, X_prev) 
+		new_prob = conditional_likelihood(o,G,s_new,error_prob, X_new)
+
+		ratio = new_prob/old_prob
+
+		print(ratio)
+		r = min(ratio, 1)
+
+		u = np.random.uniform(0.75,1)
+		if u < r:		#accept proposal
+			print("accept")
+			X.append(X_new)
+			X_prev = X_new
+			s.append(s_new)
+			s_prev = s_new
+			probabilities.append(new_prob)
+
+	print("Accepted: " + str(len(probabilities)))
+	#print(probabilities)
 	
-	for n in range(num_iter):
-
-		pass
-
-
 	return s, X
 
 def gibbs(o, G, num_iter, error_prob=0.1):
@@ -146,7 +172,7 @@ def gibbs(o, G, num_iter, error_prob=0.1):
 	X.append(sample_switch_states(G.lattice_size)) # generate initial switch state
 	s.append(sample_start_pos(G)) # set the initial start position as the one at G[0][0]
 
-	
+
 	for n in range(num_iter):
 
 
@@ -186,7 +212,7 @@ def main():
 	# analyze s, X by comparing to the ground truth
 	# check for convergence
 
-	conditional_likelihood(o,G,s,p)
+	#conditional_likelihood(o,G,s,p)
 
 if __name__ == '__main__':
 	main()

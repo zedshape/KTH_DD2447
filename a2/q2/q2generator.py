@@ -6,7 +6,7 @@ import sys
 def validate_idx(row, col, n):
 	r = row
 	c = col
-	if row < 0:
+	if row < 0:			
 		r = n-1
 	elif row >= n:
 		r = 0
@@ -17,24 +17,24 @@ def validate_idx(row, col, n):
 	return (r, c)
 
 class TrainLattice:
-	def __init__(self, lattice_size):
+	def __init__(self, lattice_size):			# setting up the lattice
 		self.G = []
-		self.lattice_size = lattice_size
+		self.lattice_size = lattice_size		# size = 3
 		for r in range(self.lattice_size):
 			row = []
 			for c in range(self.lattice_size):
-				node = Node(r, c)
+				node = Node(r, c)				# 3*3 nodes 
 				row.append(node)
 			self.G.append(row)
 
-	def get_node(self, r, c):
+	def get_node(self, r, c):						
 		return self.G[r][c]
 
 	# returns next node
 	def get_next_node(self, curr_node, entry_dir, X):
 		exit_direction = 0 # if train entered curr_node through dir {1, 2, 3}, it exists through direction 0
 		if entry_dir == 0: # otherwise, follows the current state of the switch
-			exit_direction = X[curr_node.row][curr_node.col]
+			exit_direction = X[curr_node.row][curr_node.col]			# follows switch
 		(i, j) = curr_node.edges[exit_direction]
 		(row, col) =  validate_idx(curr_node.row + i, curr_node.col + j, self.lattice_size)		
 		return (self.get_node(row, col), exit_direction)
@@ -106,7 +106,7 @@ def sample_start_pos(G):
 
 # generate graph and switch states
 # returns nxn matrix as list of list
-def sample_switch_states(n):
+def sample_switch_states(n):  #setting initial switch state
 	X = []
 	for r in range(n):
 		row = []
@@ -121,7 +121,8 @@ def generate_data(seed, n_lattice, length, error_prob):
 	G = TrainLattice(n_lattice)
 	r = np.random.randint(0, n_lattice)
 	c = np.random.randint(0, n_lattice)
-	s0 = G.get_node(r, c)
+	s0 = G.get_node(r, c)					
 	X = sample_switch_states(n_lattice)
 	positions, observations = simulate(s0, X, G, length, error_prob)
 	return G, X, positions, observations
+
