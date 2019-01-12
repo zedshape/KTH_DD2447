@@ -1,7 +1,9 @@
 from q2generator import *
+import matplotlib.pyplot as plt
 import numpy as np
 import pdb
 import math
+import random
 
 def conditional_likelihood(o, G, start, p, X): 
 	states = []
@@ -14,10 +16,10 @@ def conditional_likelihood(o, G, start, p, X):
 	s1_c = states[0].col 
 
 	T = len(o)		#number of observations
-	P = G.lattice_size **2 	# of positions
 	no_of_edges = len(start.edges)
+	no_of_positions = G.lattice_size **2
 	lattice_dim = (G.lattice_size, G.lattice_size)
-	matrix_dim = (2, P, P)
+	matrix_dim = (2, no_of_positions, no_of_positions)
 
 	#compute transition probability matrix
 	t_prob = np.zeros(matrix_dim)  
@@ -62,9 +64,9 @@ def conditional_likelihood(o, G, start, p, X):
 		states.append(G.get_node(i[0],i[1]))
 
 	#compute emission probability matrix
-	e_prob = np.zeros(((2, P, len(edges))))  # t_prob[obs_i][obs_j][i][j]
+	e_prob = np.zeros(((2, no_of_positions, len(edges))))  # t_prob[entry][position][observation]
 
-	for pos in range(P):
+	for pos in range(no_of_positions):
 		r,c = np.unravel_index(pos,lattice_dim)	# row and col indices
 		ss_t = X[r][c]						# switch state exit
 		
@@ -73,17 +75,18 @@ def conditional_likelihood(o, G, start, p, X):
 		e_prob[1][pos] = [p/3 for i in range(no_of_edges)]
 
 		# probability of correct observation *overwriting*
-		e_prob[0][pos][0] = 1-p
-		e_prob[1][pos][ss_t] = 1-p
+		e_prob[0][pos][0] = 1-p   #if it enters current state from {1,2,3}, the output should be 0
+		e_prob[1][pos][ss_t] = 1-p	#if it enters current state from {0}, the output should be the switch state
 
 	#calculate conditional probability
+
 	cond_prob = 0
 	for t in range(1,T):			# normalize?
 		statesum = 0
 		#print("_________NEW T_________")
 		i1 = np.ravel_multi_index((states[t-1].row,states[t-1].col),lattice_dim)		#index of s(t-1)
 		
-		for st in range(P):
+		for st in range(no_of_positions):
 			i2 = np.ravel_multi_index((states[st].row,states[st].col),lattice_dim)			#index of s(t)
 
 			if entries[st-1] > 0:		# if entering s(t-1) from direction{1,2,3}, path will follow zero-direction to s(t)
@@ -99,71 +102,141 @@ def conditional_likelihood(o, G, start, p, X):
 # o: observations
 # n_lattice: size of the lattice
 # num_iter: number of MCMC iterations
+
 def mh_w_gibbs(o, G, num_iter, error_prob=0.1):			#metropolis-hastings
 	s = [] # store samples for the start positions
 	X = [] # store switch states
 	X.append(sample_switch_states(G.lattice_size)) # generate initial switch state
 	s.append(sample_start_pos(G)) # set the initial start position as the one at G[0][0]
 
+	#s.append(G.get_node(1,0))
 	probabilities = []
 	probabilities.append(conditional_likelihood(o,G,s[0],error_prob, X[0]))
 
 	#variables created
 	lattice_dim = (G.lattice_size, G.lattice_size)		#lattice dimension, used for index conversion
+	no_of_positions = G.lattice_size **2		# number of possible positions
 	no_of_ss = G.lattice_size		# number of possible switch states {1,2,3}
+
+	X_count = np.ones((no_of_positions, len(X[0])))		# counts occurances of each switch state at each position
+	s_count = np.ones(no_of_positions)			# counts number of times each index is start position
+
+	accepted_n = []
+	accepted_n.append(0)
+
 	X_prev = X[0]		# initial sample of X
 	s_prev = s[0]
 	s_prev_index = np.ravel_multi_index((s[0].row,s[0].col),lattice_dim)  # index of initial sample of start position
 
-	X_count = np.ones((G.lattice_size**2, len(X[0])))		# counts occurances of each switch state at each position
-	s_count = np.ones(G.lattice_size**2)			# counts number of times each index is start position
-
-	for n in range(num_iter):		# change back to num_iter
+	for n in range(num_iter): #change back to num_iter
 		# count occurances in previous sample
-		s_count[s_prev_index] += 1						#add count
-		s_count_n = s_count * 1/np.sum(s_count)		#normalize
+		#s_count[s_prev_index] += 1						#add count
+		#s_count_n = s_count * 1/np.sum(s_count)		#normalize
+		#s_new_index = np.nonzero(np.random.multinomial(1, s_count_n , size=1))[1][0]	# sample from categorical distribution
+		
+		#s_new_index = np.random.randint(G.lattice_size**2, size = 1)[0]
+		#print(s_new_index)
+		#s_r,s_c = np.unravel_index(s_new_index, lattice_dim)	
+		#s_new = G.get_node(s_r, s_c)
 
-		s_new_index = np.nonzero(np.random.multinomial(1, s_count_n , size=1))[1][0]	#draw sample from categorical distribution
-		s_r,s_c = np.unravel_index(s_new_index, lattice_dim)
-		s_new = G.get_node(s_r, s_c)
-
-		for x_row in range(len(X_prev)):		# count occurances of every switch state at every state in sequence
+		for x_row in range(len(X_prev)):		# count occurances of every switch state at every position
 			for x_col in range(len(X_prev)):
 				X_i_long = np.ravel_multi_index((x_row,x_col),lattice_dim)
 				X_count[X_i_long][(X_prev[x_row][x_col])-1] += 1	# index 0 --> ss=1 etc
 		
-		X_count_n = [X_count[i][:] * 1/np.sum(X_count[i][:]) for i in range(G.lattice_size**2)]			#normalize
-
+		X_count_normalized = [X_count[i][:] * 1/np.sum(X_count[i][:]) for i in range(no_of_positions)]			#normalize
+		
 		X_new = np.zeros(np.shape(X_prev))
 
-		for x in range(len(X_count)):				# creating new sample
-			sample_ss_index = np.random.multinomial(1, X_count_n[x], size = 1)
-			sample_ss = np.nonzero(sample_ss_index)[1][0]
+		for x in range(no_of_positions):				# creating new sample
+			#sample_ss_index = np.random.multinomial(1, X_count_normalized[x], size = 1)
+			#sample_ss = np.nonzero(sample_ss_index)[1][0]
+			sample_ss = np.random.randint(no_of_ss)
 			r,c = np.unravel_index(x, lattice_dim)
-			X_new[r][c] = int(sample_ss+1 )
+			X_new[r][c] = int(sample_ss+1 )	# ss index 0 --> ss=1 etc
 
 		X_new = X_new.astype(int)
 
-		old_prob = conditional_likelihood(o,G,s_prev,error_prob, X_prev) 
-		new_prob = conditional_likelihood(o,G,s_new,error_prob, X_new)
+		# test
+		X_new = X_prev
+		ss_to_change = np.random.randint(no_of_positions)
+		r,c = np.unravel_index(ss_to_change, lattice_dim)
+		X_new[r][c] = np.random.randint(no_of_ss)
+		# end test
 
+		probs = []
+		for i in range(no_of_positions):
+			r,c = np.unravel_index(i, lattice_dim)
+			probs.append(conditional_likelihood(o,G,G.get_node(r,c),error_prob, X_new))			# append prob for every start position
+
+		#probs_normalized = probs/np.sum(probs)
+		most_prob_s = np.argmax(probs)
+	
+
+		#s_new_index = np.nonzero(np.random.multinomial(1, probs_normalized, size=1))[1][0]		#test normal distr
+		#new_prob = probs[s_new_index]
+		s_r,s_c = np.unravel_index(most_prob_s, lattice_dim)
+		s_new = G.get_node(s_r, s_c)
+
+		new_prob = probs[np.argmax(probs)]
+		old_prob = conditional_likelihood(o,G,s_prev,error_prob, X_prev) 
+		#new_prob = conditional_likelihood(o,G,s_new,error_prob, X_new)
 		ratio = new_prob/old_prob
 
 		print(ratio)
 		r = min(ratio, 1)
 
-		u = np.random.uniform(0.75,1)
+		u = np.random.uniform(0.5,1)
 		if u < r:		#accept proposal
 			print("accept")
 			X.append(X_new)
 			X_prev = X_new
 			s.append(s_new)
 			s_prev = s_new
+			s_prev_index = most_prob_s
 			probabilities.append(new_prob)
+			accepted_n.append(n)
 
 	print("Accepted: " + str(len(probabilities)))
-	#print(probabilities)
-	
+	print(np.argmax(probabilities))
+	print(probabilities[np.argmax(probabilities)])
+	print(math.exp(max(probabilities)))
+	print(s[np.argmax(probabilities)])
+
+	s_index = [np.ravel_multi_index((s[i].row,s[i].col),lattice_dim) for i in range(len(s))]
+	X_test = [X[i][2][1] for i in range(len(X))]
+
+	#plt.plot(accepted_n, s_index)
+	#plt.show()
+
+	# the histogram of the data
+	#plt.figure(1)
+	plt.subplot(311)
+	n, bins, patches = plt.hist(s_index, 9)
+	plt.axis([0, 9, 0, 500])
+	plt.xlabel('Start position')
+	plt.ylabel('Accepted samples')
+	plt.title('Histogram of possible start positions')
+	plt.grid(True)
+
+	#plt.figure(2)
+	plt.subplot(312)
+
+	n, bins, patches = plt.hist(X_test, 3, facecolor='g')
+
+	plt.xlabel('(1,1) switch')
+	plt.ylabel('Accepted samples')
+	plt.title('Histogram of possible switches for (1,1)')
+	plt.axis([0, 3, 0, 1000])
+
+	plt.grid(True)
+
+
+	plt.subplot(313)
+	plt.axis([0, 1000, 0, 9])
+	plt.plot(accepted_n, s_index)
+	plt.show()
+
 	return s, X
 
 def gibbs(o, G, num_iter, error_prob=0.1):
@@ -173,10 +246,106 @@ def gibbs(o, G, num_iter, error_prob=0.1):
 	s.append(sample_start_pos(G)) # set the initial start position as the one at G[0][0]
 
 
-	for n in range(num_iter):
+	probabilities = []
+	probabilities.append(conditional_likelihood(o,G,s[0],error_prob, X[0]))
+
+	#variables created
+	lattice_dim = (G.lattice_size, G.lattice_size)		#lattice dimension, used for index conversion
+	no_of_positions = G.lattice_size **2		# number of possible positions
+	no_of_ss = G.lattice_size		# number of possible switch states {1,2,3}
+
+	X_count = np.ones((no_of_positions, len(X[0])))		# counts occurances of each switch state at each position
+	s_count = np.ones(no_of_positions)			# counts number of times each index is start position
+
+	accepted_n = []
+	accepted_n.append(0)
+
+	X_prev = X[0]		# initial sample of X
+	s_prev = s[0]
+	s_prev_index = np.ravel_multi_index((s[0].row,s[0].col),lattice_dim)  # index of initial sample of start position
+
+	for n in range(num_iter):  #num_iter
+		print("n: " + str(n))
+
+		X_new = X_prev
+		ss_to_change = n % no_of_positions
+		#ss_to_change = np.random.randint(no_of_positions)
+		r,c = np.unravel_index(ss_to_change, lattice_dim)
+		X_new[r][c] = np.random.randint(no_of_ss)
+
+		probs = []
+		for i in range(no_of_positions):
+			r,c = np.unravel_index(i, lattice_dim)
+			probs.append(conditional_likelihood(o,G,G.get_node(r,c),error_prob, X_new))			# append prob for every start position
+
+		probs_normalized = probs/np.sum(probs)
+		most_prob_s = np.argmax(probs)
+	
+
+		#s_new_index = np.nonzero(np.random.multinomial(1, probs_normalized, size=1))[1][0]		#test normal distr
+		#new_prob = probs[s_new_index]
+		s_r,s_c = np.unravel_index(most_prob_s, lattice_dim)
+		s_new = G.get_node(s_r, s_c)
+
+		new_prob = probs[np.argmax(probs)]
+		old_prob = conditional_likelihood(o,G,s_prev,error_prob, X_prev) 
+		#new_prob = conditional_likelihood(o,G,s_new,error_prob, X_new)
+		ratio = new_prob/old_prob
+
+		print(ratio)
+		r = min(ratio, 1)
+
+		u = np.random.uniform(0,1)
+		if u < r:		#accept proposal
+			print("accept")
+			X.append(X_new)
+			X_prev = X_new
+			s.append(s_new)
+			s_prev = s_new
+			s_prev_index = most_prob_s
+			probabilities.append(new_prob)
+			accepted_n.append(n)
+
+	print("Accepted: " + str(len(probabilities)))
+	print(np.argmax(probabilities))
+	print(probabilities[np.argmax(probabilities)])
+	print(math.exp(max(probabilities)))
+	print(s[np.argmax(probabilities)])
+
+	s_index = [np.ravel_multi_index((s[i].row,s[i].col),lattice_dim) for i in range(len(s))]
+	X_test = [X[i][2][1] + 1 for i in range(len(X))]
+
+	#plt.plot(accepted_n, s_index)
+	#plt.show()
+
+	# the histogram of the data
+	#plt.figure(1)
+	plt.subplot(311)
+	n, bins, patches = plt.hist(s_index, 9)
+	plt.axis([0, 9, 0, 500])
+	plt.xlabel('Start position')
+	plt.ylabel('Accepted samples')
+	plt.title('Histogram of possible start positions')
+	plt.grid(True)
+
+	#plt.figure(2)
+	plt.subplot(312)
+
+	n, bins, patches = plt.hist(X_test, 3, facecolor='g')
+
+	plt.xlabel('(1,1) switch')
+	plt.ylabel('Accepted samples')
+	plt.title('Histogram of possible switches for (1,1)')
+	plt.axis([0, 3, 0, 1000])
+
+	plt.grid(True)
 
 
-		pass
+	plt.subplot(313)
+	plt.axis([0, 1000, 0, 9])
+	plt.plot(accepted_n, s_index)
+	plt.show()
+
 	return s, X
 
 def block_gibbs(o, G, num_iter, error_prob=0.1):		#blocked gibbs sampling
@@ -206,6 +375,8 @@ def main():
 	# infer s[0] and switch states given o and G
 	num_iter = 1000
 	s, X = mh_w_gibbs(o, G, num_iter, p)
+
+	#s2, X2 = gibbs(o, G, num_iter, p)
 	
 
 	# YOUR CODE:
