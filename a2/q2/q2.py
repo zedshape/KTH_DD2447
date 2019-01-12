@@ -83,18 +83,22 @@ def conditional_likelihood(o, G, start, p, X):
 	cond_prob = 0
 	for t in range(1,T):			# normalize?
 		statesum = 0
-		#print("_________NEW T_________")
-		i1 = np.ravel_multi_index((states[t-1].row,states[t-1].col),lattice_dim)		#index of s(t-1)
-		
+		i1 = np.ravel_multi_index((states[t-1].row,states[t-1].col),lattice_dim)  #index of s(t-1)
+			
+		if entries[st-1] >0:
+			prev_out = 0
+		else:
+			prev_out = 1
+
 		for st in range(no_of_positions):
-			i2 = np.ravel_multi_index((states[st].row,states[st].col),lattice_dim)			#index of s(t)
+			i2 = np.ravel_multi_index((states[st].row,states[st].col),lattice_dim)	#index of s(t)
 
-			if entries[st-1] > 0:		# if entering s(t-1) from direction{1,2,3}, path will follow zero-direction to s(t)
-				output_matrix = 0		
+			if entries[st] > 0:		# if entering s(t-1) from direction{1,2,3}, path will follow zero-direction to s(t)
+				cur_our = 0		
 			else:						#if entering s(t-1) from zero-direction, path will follow switch state to s(t)
-				output_matrix = 1		
+				cur_out = 1		
 
-			statesum += (e_prob[output_matrix][i2][(X[states[st].row][states[st].col])]) * t_prob[output_matrix][i1][i2]
+			statesum += e_prob[cur_out][i2][(X[states[st].row][states[st].col])] * t_prob[prev_out][i1][i2]
 		if statesum != 0:
 			cond_prob += math.log(statesum)
 	return(cond_prob)	
