@@ -1,10 +1,11 @@
 import numpy as np
+import pandas as pd #added manually
 import math
 import matplotlib.pyplot as plt
 
 def generator(seed, N, M, K, W, alpha_bg, alpha_mw):
-    # Data generator. 
-    # Input: seed: int, N: int, M: int, K: int, W: int, alpha_bg: numpy array with shape(K), alpha_mw: numpy array with shape(K) 
+    # Data generator.
+    # Input: seed: int, N: int, M: int, K: int, W: int, alpha_bg: numpy array with shape(K), alpha_mw: numpy array with shape(K)
     # N = # of sequences
     # M = length of sequences
     # K = alphabet
@@ -21,17 +22,14 @@ def generator(seed, N, M, K, W, alpha_bg, alpha_mw):
     np.random.seed(seed)        # Set the seed, initializing pseudorandom number generator
 
     D = np.zeros((N,M))         # Sequence matrix of size NxM
-    R_truth = np.zeros(N)       # Start position of magic word of each sequence
-
     theta_bg = np.zeros(K)      # Categorical distribution parameter of background distribution
     theta_mw = np.zeros((W,K))  # Categorical distribution parameter of magic word distribution
 
     # YOUR CODE:
 
-     # Generate R_truth
-    R_samplespace =  M - W + 1 
+    # Generate R_truth
+    R_samplespace =  M - W + 1
     R_truth = np.random.randint(R_samplespace, size = N)      # integers from discrete uniform distribution
-
 
     # generate theta
     for i in range(W):
@@ -39,7 +37,7 @@ def generator(seed, N, M, K, W, alpha_bg, alpha_mw):
 
     theta_bg = np.random.dirichlet(alpha_bg)
 
-    # Generate D 
+    # Generate D
     for state in range(N):
         for position in range(M):
             #print(" position = " + str(position) + " R_truth = " + str(R_truth[state]))
@@ -52,24 +50,24 @@ def generator(seed, N, M, K, W, alpha_bg, alpha_mw):
                 dp = np.nonzero(np.random.multinomial(1,theta_bg))[0]
 
             D[state][position] = dp
-   
-    # Generate D, R_truth, theta_bg, theta_mw. Please use the specified data types and dimensions. 
+
+    # Generate D, R_truth, theta_bg, theta_mw. Please use the specified data types and dimensions.
 
     return D, R_truth, theta_bg, theta_mw
 
 
 def gibbs(D, alpha_bg, alpha_mw, num_iter, W):
-    # Gibbs sampler. 
+    # Gibbs sampler.
     # Input: D: numpy array with shape (N,M),  alpha_bg: numpy array with shape(K), alpha_mw: numpy array with shape(K), num_iter: int, W: int
     # Output: R: numpy array with shape(num_iter, N)
-    
+
     N = D.shape[0]
     R = np.zeros((num_iter, N)) # Store samples for start positions of magic word of each sequence
     #print("len R " + str(len(R)))
 
     # YOUR CODE:
-    # Implement gibbs sampler for start positions. 
-  
+    # Implement gibbs sampler for start positions.
+
     M = D[0].shape[0]
     B = N*(M-W)
     K = alpha_mw.shape[0]
@@ -83,14 +81,14 @@ def gibbs(D, alpha_bg, alpha_mw, num_iter, W):
     samples = []
     samples.append(R0)      #starting sequence
 
-    for n in range(num_iter):  
-        positions = []       # this will be a row in R       
+    for n in range(num_iter):
+        positions = []       # this will be a row in R
         current_state=samples[-1]   # the last sampled sequence
 
         for s in range(N):
             pos_proba = []
-        
-            for r_i in range(M - W):         # loop over possible start ANDRA EV TILL M_W!
+
+            for r_i in range(M - W+1):         # loop over possible start ANDRA EV TILL M_W!
                 #current_state = list(current_state)
                 current_state[s] = r_i
                 count_mw = np.ones((W,K))         # counting occurances of each element at each position in mw
@@ -112,55 +110,42 @@ def gibbs(D, alpha_bg, alpha_mw, num_iter, W):
                 seq_bg = np.asarray([ np.concatenate((D[a][0:current_state[a]], D[a][current_state[a]+W:]), axis = 0) for a in range(N)])
                 seq_mw = np.asarray([ D[a][current_state[a]:current_state[a]+W] for a in range(N)])
 
-           
                # seq_bg = np.delete(seq_bg,s,axis=0)
                #seq_mw = np.delete(seq_mw,s,axis=0)
                # seq_mw = np.delete(seq_mw,1,axis=1)
-                
-                for c in range(N-1):        #excluding current sequence and column
+
+                for c in range(N):
                     for m in range(M-W):
                     #counts character occurance for char in bg
-                        count_bg[seq_bg[c][m]] += 1
-                    
+                        count_bg[int(seq_bg[c][m])] += 1
+
                     #counts character occurance for every char in every position of mw
-                    for w in range(W-1):
-                        count_mw[w][seq_mw[c][w]] +=1
+                    for w in range(W):
+                        count_mw[w][int(seq_mw[c][w])] +=1
 
+                #calculate gamma probabilites
                 C = (math.gamma(np.sum(alpha_bg)) / math.gamma(B + np.sum(alpha_bg)))
-
                 class_probs = [ math.gamma(count_bg[k] + alpha_bg[k]) / math.gamma(alpha_bg[k])  for k in range(K)]
-        
                 p_bg = math.log(C) + math.log(np.prod(class_probs))
-
                 C2 = math.gamma(np.sum(alpha_mw))/math.gamma(N * W + np.sum(alpha_mw))
 
-                class_probs_j = []
+                p_mw = []
                 for j in range(W):
-                    class_probs_jk = [ math.gamma(count_mw[j][k] + alpha_mw[k]) / math.gamma(alpha_mw[k])  for k in range(K) ]
-                    class_probs_jk = math.log(C2) + math.log(np.prod(class_probs_jk) )
-                    class_probs_j.append(class_probs_jk)
+                    tmp_prob = [ math.gamma(count_mw[j][k] + alpha_mw[k]) / math.gamma(alpha_mw[k])  for k in range(K) ]
+                    tmp_prob = math.log(C2) + math.log(np.prod(tmp_prob) )
+                    p_mw.append(tmp_prob)
 
-                p_mw = class_probs_j
                 #print(p_mw)
                 #print(class_probs_j)
-                p =  p_bg + np.sum(p_mw) 
+                p =  p_bg + np.sum(p_mw)
                 #print(p)
-                
+
                 pos_proba.append(p)
 
             #normalize
             p = np.asarray(pos_proba)
             p = np.exp(p - np.max(p))
             p = p/np.sum(p)
-            #p = p / np.sum(p)
-            #print(p)
-            #print(np.sum(p))
-            
-
-            #print(p)
-            #startpos = np.unravel_index(np.argmax(p), p.shape)[0]
-            #print(startpos)
-
 
             multi_samp = np.random.multinomial(1,p)
             #print(multi_samp)
@@ -170,35 +155,55 @@ def gibbs(D, alpha_bg, alpha_mw, num_iter, W):
             current_state[s] = position
             positions.append(position)
             #print(positions)
-                
+
         samples.append(np.array(positions))
 
-        R[n]= np.array(positions)
-    print(R[n])
-    print(R)
+        R[n] = np.array(positions)
 
     return R
 
+def diagnosis(R):
+    #Gelman-Rubin diagnostic
+    #reference: http://astrostatistics.psu.edu/RLectures/diagnosticsMCMC.pdf
 
-    #plot
-    
+    n = R.shape[1] #number of iterations
+    m = R.shape[0] #number of chains
+
+    #calculate basic thetas
+    theta_j = np.mean(R, axis=1)
+    theta_bar = np.mean(theta_j, axis=0)
+
+    #calculate W
+    sj_square = 1/np.float(n-1)*np.sum(np.array([np.power((R[chain]-theta_j[chain]), 2) \
+                                           for chain in range(m)]), axis=1)
+    W = 1/np.float(m) * np.sum(sj_square, axis=0)
+    #calculate B
+    B = n/np.float(m-1)*np.sum(np.power(theta_j-theta_bar, 2), axis=0)
+
+    #Finally get V value
+    V_hat = (1-1/n)*W + 1/n*B
+
+    #R
+    R_hat = np.sqrt(V_hat/W)
+
+    return R_hat
 
 def main():
     seed = 123
 
-    N = 20
-    M = 10
+    N = 20 #length of sequence
+    M = 10 #length of words
     K = 4
-    W = 5
+    W = 5 #magic words
     alpha_bg = np.ones(K)
-    alpha_mw = np.ones(K) * 0.9
-
+    alpha_mw = np.ones(K) * 0.9 #initial prior
+    #alpha_mw = np.array([10, 7, 4, 1])
     num_iter = 1000 #CHANGE BACK TO 1000
-    
+
     print("Parameters: ", seed, N, M, K, W, num_iter)
     print(alpha_bg)
     print(alpha_mw)
-    
+
     # Generate synthetic data.
     D, R_truth, theta_bg, theta_mw = generator(seed, N, M, K, W, alpha_bg, alpha_mw)
     print("\nSequences: ")
@@ -206,7 +211,7 @@ def main():
     print("\nStart positions (truth): ")
     print(R_truth)
 
-    # Use D, alpha_bg and alpha_mw to infer the start positions of magic words. 
+    # Use D, alpha_bg and alpha_mw to infer the start positions of magic words.
     R = gibbs(D, alpha_bg, alpha_mw, num_iter, W)
     print("\nStart positions (sampled): ")
     print(R[0,:])
@@ -214,44 +219,54 @@ def main():
 
 
     # YOUR CODE:
-    
-    step = 10
-    x_axis = np.zeros(num_iter/step)
-    y_axis = np.zeros(num_iter/step)
-    #print(x_axis.shape)
-    #print(y_axis.shape)
 
-    # plot, axes = plt.subplots(6,1)
-    plt.xlabel('Iteration')
-    plt.ylabel('R[n]')
+    #####plotting area
+    #We commented in all plt.show() for submission
+    #Grader can comment them out to check our result
 
+    print("Now the code will calculate things to plot, but we commented in all plt.show() part")
+    #1. prediction hit rate
+    f, ax = plt.subplots(20, 1, figsize=(16, 50), dpi=80)
+    R = np.array(R)
+    for n in range(N):
+        ax[n].plot(R[:,n])
+        ax[n].set_title('Position $m={}$'.format(n))
+    print("We calculated prediction trace")
+    #plt.show()
 
-    #ax1 = plt.subplot(2011)
+    #2. histogram plottnig
 
-    for pos in range(1):
-        plt.title("TRY: " + str(pos))
+    f, ax = plt.subplots(2, 10, figsize=(30, 10), dpi=80)
+    for n in range(N):
+        ax[(n//10), n%10].hist(R[:, n], bins=100)
+        ax[n//10, n%10].set_title('Position {}'.format(n), fontsize=20)
+    print("We calculated histogram")
+    #plt.show()
 
-        i =0
-        for n in range(num_iter):
-            if n % (step) == 0:
-            #if n >= 900:
-                #print(i)
-                x_axis[i] = n
-                y_axis[i] = R[n][pos]
-                #print(R[n])
-                i +=1
+    #hit rate
+    truth = np.array(R_truth)
+    truth
+    hit = []
+    for n in range(N):
+        hit.append(float(np.sum(R[:, n] == truth[n])/len(R[:,n])))
+    print("We calculated hit rate")
+    print(hit)
 
-        #  print(x_axis)
-        #  print(y_axis)
-        t = np.ones(K) * R_truth[pos]
-        #plt.grid(True)
-        plt.axis([x_axis[0], i*step, 0, M])
-        print("plot " + str(pos))
-        plt.plot(x_axis, y_axis)
-    #plt.plot(x_axis , t, color ="r")
+    #3. convergence check
+    #we commented whole part as it takes a lot of time to get 10 multiple_models
+    """
+    multiple_gibbs = [gibbs(D, alpha_bg, alpha_mw, num_iter, W) for _ in range(10)]
+    multiple_gibbs = np.array(multiple_gibbs)
+    print("now we run 10 models to check convergence rate")
+    diagnosis_results = np.array([ diagnosis(multiple_gibbs[:,0:t,:]) for t in range(2,num_iter)])
+    plt.figure(figsize=(16,6))
+    plt.title('Diagnosis result(Convergence rate) using Gelman-Rubin diagnostic')
+    for n in range(N): # for each position plot a new graph
+        plt.plot(diagnosis_results[:,n], label=n)
+    plt.legend(loc=1)
+    print("We calculated convergence rate")
     plt.show()
-    # Analyze the results. Check for the convergence. 
+    """
 
 if __name__ == '__main__':  #autoruns main
     main()
-   

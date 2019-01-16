@@ -2,369 +2,386 @@ from q2generator import *
 import matplotlib.pyplot as plt
 import numpy as np
 import pdb
-import math
-import random
+#manually added
+import pandas as pd
+from itertools import permutations
 
-def conditional_likelihood(o, G, start, p, X): 
-	states = []
-	entries = []
-	states.append(start)
-	entries.append(0)				#entry directions
+def conditional_likelihood(o, G, start, p, X):
+    states = []
+    entries = []				#entry directions
 
-	# initial state positions
-	s1_r = states[0].row
-	s1_c = states[0].col 
+    lattice_dim = (G.lattice_size, G.lattice_size)
+    T = len(o)#number of observations
 
-	T = len(o)		#number of observations
-	no_of_edges = len(start.edges)
-	no_of_positions = G.lattice_size **2
-	lattice_dim = (G.lattice_size, G.lattice_size)
-	matrix_dim = (2, no_of_positions, no_of_positions)
+    # initial state positions
+    s1_r = start.row
+    s1_c = start.col
+    s1 = G.get_node(s1_r, s1_c) #start position node
+    states.append(s1)
 
-	#compute transition probability matrix
-	t_prob = np.zeros(matrix_dim)  
+    #get second position to check transition
+    states.append(G.get_next_node(states[0], 0, X)[0]) #next node
 
-	counter = 0
-	for i in range(G.lattice_size):
-		for j in range(G.lattice_size):	
-			cur_node = G.get_node(i,j)		# current node
-			cur_ss = X[i][j]				# current switch state
-			edges = cur_node.edges 			# edges of current node
-			exit_edges = (cur_node.get_edge(0), cur_node.get_edge(cur_ss))		# can exit through zero or switch state
+    cond_prob = 1
 
-			for e in range(len(exit_edges)):		# possible next nodes
-				i_next, j_next = validate_idx(i + exit_edges[e][0], j + exit_edges[e][1], G.lattice_size)		#index of next node
-				next_node = G.get_node(i_next, j_next)
+    #for looping timetable
+    for t in range(1, T):
+        #check the transition entry
+        #print(states[-2], states[-1])
+        e_dir = G.get_entry_direction(states[-2], states[-1])
+        entries.append(e_dir)
 
-				first_index = np.ravel_multi_index((i,j),lattice_dim)
-				second_index = np.ravel_multi_index((i_next,j_next),lattice_dim)
+        if e_dir > 0:
+            if o[t] == 0:
+                cond_prob = cond_prob * (1-p)
+            else:
+                cond_prob = cond_prob * p
+        elif e_dir == 0:
+            #ot == dt -> emission probability
+            #retrieve t'th data and compare
+            dt = X[states[-1].row][states[-1].col]
+            if o[t] == dt:
+                cond_prob = cond_prob * (1-p)
+            else:
+                cond_prob = cond_prob * p
 
-				t_prob[e][first_index][second_index] = 1			# e = 0 if zero exit (entry from {1,2,3} ), e=1 if switch state exit (entry from 0)
+        #update next position to loop until timetable ends
+        states.append(G.get_next_node(states[-1], e_dir, X)[0])
 
-	# computing the path, using start position and transition probability matrix
-	e1 = states[-1].get_edge(X[s1_r][s1_c])		#starts with following switch state
-	r,c = validate_idx(s1_r + e1[0],s1_c + e1[1], G.lattice_size)
-	states.append(G.get_node(r,c))	#second state
-	entries.append(G.get_entry_direction(states[-2], states[-1]))
-
-	for t in range(2,T): 
-		e_dir = G.get_entry_direction(states[-2], states[-1])
-		entries.append(e_dir)
-
-		r = states[-1].row
-		c = states[-1].col
-
-		i_long = np.ravel_multi_index((r,c), lattice_dim)
-
-		if e_dir > 0:
-			i = np.unravel_index(t_prob[0][i_long].argmax(), lattice_dim)		# use switch state
-		else:
-			i = np.unravel_index(t_prob[1][i_long].argmax(), lattice_dim)		# exit from zero
-
-		states.append(G.get_node(i[0],i[1]))
-
-	#compute emission probability matrix
-	e_prob = np.zeros(((2, no_of_positions, len(edges))))  # t_prob[entry][position][observation]
-
-	for pos in range(no_of_positions):
-		r,c = np.unravel_index(pos,lattice_dim)	# row and col indices
-		ss_t = X[r][c]						# switch state exit
-		
-		# probability of incorrect observation is p, thus probability of a specific incorrect observation is p/3  (--> total obs prob is always one)
-		e_prob[0][pos] = [p/3 for i in range(no_of_edges)]
-		e_prob[1][pos] = [p/3 for i in range(no_of_edges)]
-
-		# probability of correct observation *overwriting*
-		e_prob[0][pos][0] = 1-p   #if it enters current state from {1,2,3}, the output should be 0
-		e_prob[1][pos][ss_t] = 1-p	#if it enters current state from {0}, the output should be the switch state
-
-	#calculate conditional probability
-	cond_prob = 0
-	for t in range(1,T):			# normalize?
-		statesum = 0
-		i1 = np.ravel_multi_index((states[t-1].row,states[t-1].col),lattice_dim)  #index of s(t-1)
-			
-		if entries[t-1] >0:	#st-1
-			prev_out = 0
-		else:
-			prev_out = 1
-
-		#for st in range(no_of_positions):
-		i2 = np.ravel_multi_index((states[t].row,states[t].col),lattice_dim)	#index of s(t)
-
-		if entries[t] > 0:		# if entering s(t-1) from direction{1,2,3}, path will follow zero-direction to s(t)
-			cur_out = 0		
-		else:						#if entering s(t-1) from zero-direction, path will follow switch state to s(t)
-			cur_out = 1		
-
-		epdf = e_prob[cur_out][i2][(X[states[t].row][states[t].col])]
-		tpdf = t_prob[prev_out][i1][i2]
-		statesum += epdf * tpdf
-
-		if statesum != 0:
-			cond_prob += math.log(statesum)
-			#print(cond_prob)
-	return(cond_prob)	
+    return(cond_prob)
 
 # o: observations
 # n_lattice: size of the lattice
 # num_iter: number of MCMC iterations
 
+# o: observations
+# n_lattice: size of the lattice
+# num_iter: number of MCMC iterations
 def mh_w_gibbs(o, G, num_iter, error_prob=0.1):			#metropolis-hastings
-	s = [] # store samples for the start positions
-	X = [] # store switch states
-	X.append(sample_switch_states(G.lattice_size)) # generate initial switch state
-	s.append(sample_start_pos(G)) # set the initial start position as the one at G[0][0]
+    s = [] # store samples for the start positions
+    X = [] # store switch states
+    X.append(sample_switch_states(G.lattice_size)) # generate initial switch state
+    s.append(sample_start_pos(G)) # set the initial start position as the one at G[0][0]
 
-	#s.append(G.get_node(1,0))
-	probabilities = []
-	probabilities.append(conditional_likelihood(o,G,s[0],error_prob, X[0]))
+    #s.append(G.get_node(1,0))
+    probabilities = []
+    probabilities.append(conditional_likelihood(o,G,s[0],error_prob, X[0]))
 
-	#variables created
-	lattice_dim = (G.lattice_size, G.lattice_size)		#lattice dimension, used for index conversion
-	no_of_positions = G.lattice_size **2		# number of possible positions
-	no_of_ss = G.lattice_size		# number of possible switch states {1,2,3}
+    #variables created
+    lattice_dim = (G.lattice_size, G.lattice_size)		#lattice dimension, used for index conversion
+    no_of_positions = G.lattice_size **2		# number of possible positions
+    no_of_ss = G.lattice_size		# number of possible switch states {1,2,3}
 
-	X_count = np.ones((no_of_positions, len(X[0])))		# counts occurances of each switch state at each position
-	s_count = np.ones(no_of_positions)			# counts number of times each index is start position
+    X_count = np.ones((no_of_positions, len(X[0])))		# counts occurances of each switch state at each position
+    s_count = np.ones(no_of_positions)			# counts number of times each index is start position
 
-	accepted_n = []
-	accepted_n.append(0)
+    accepted_n = []
+    accepted_n.append(0)
+    total_trial = 0
 
-	X_prev = X[0]		# initial sample of X
-	s_prev = s[0]
-	s_prev_index = np.ravel_multi_index((s[0].row,s[0].col),lattice_dim)  # index of initial sample of start position
+    X_prev = X[0]		# initial sample of X
+    s_prev = s[0]
+    #s_prev_index = np.ravel_multi_index((s[0].row,s[0].col),lattice_dim)  # index of initial sample of start position
 
-	for n in range(num_iter): #change back to num_iter
-		# count occurances in previous sample
-		#s_count[s_prev_index] += 1						#add count
-		#s_count_n = s_count * 1/np.sum(s_count)		#normalize
-		#s_new_index = np.nonzero(np.random.multinomial(1, s_count_n , size=1))[1][0]	# sample from categorical distribution
-		
-		#s_new_index = np.random.randint(G.lattice_size**2, size = 1)[0]
-		#print(s_new_index)
-		#s_r,s_c = np.unravel_index(s_new_index, lattice_dim)	
-		#s_new = G.get_node(s_r, s_c)
+    for n in range(num_iter): #change back to num_iter
+        X_prev = X[-1]
+        #print(X_prev)
+        probs = []
+        for i in range(no_of_positions):
+            r,c = np.unravel_index(i, lattice_dim)
+            probs.append(conditional_likelihood(o,G,G.get_node(r,c),error_prob, X_prev))			# append prob for every start position
 
-		for x_row in range(len(X_prev)):		# count occurances of every switch state at every position
-			for x_col in range(len(X_prev)):
-				X_i_long = np.ravel_multi_index((x_row,x_col),lattice_dim)
-				X_count[X_i_long][(X_prev[x_row][x_col])-1] += 1	# index 0 --> ss=1 etc
-		
-		X_count_normalized = [X_count[i][:] * 1/np.sum(X_count[i][:]) for i in range(no_of_positions)]			#normalize
-		
-		X_new = np.zeros(np.shape(X_prev))
+        #for further iteration
+        probs = np.array(probs)
+        probs = probs/np.sum(probs) #NORMALIZATION
 
-		for x in range(no_of_positions):				# creating new sample
-			#sample_ss_index = np.random.multinomial(1, X_count_normalized[x], size = 1)
-			#sample_ss = np.nonzero(sample_ss_index)[1][0]
-			sample_ss = np.random.randint(no_of_ss)
-			r,c = np.unravel_index(x, lattice_dim)
-			X_new[r][c] = int(sample_ss+1 )	# ss index 0 --> ss=1 etc
+        #############gibbs update without acceptance process#############
+        #print(probs)
+        #multinomial proposal
+        most_prob_s = np.argmax(np.random.multinomial(1,probs))
+        #print(most_prob_s)
+        #for plotting
+        probabilities.append(probs[most_prob_s])
+        #get new s based on our proposal
+        s_r,s_c = np.unravel_index(most_prob_s, lattice_dim)
+        s_new = G.get_node(s_r, s_c)
+        #s_prev_index = most_prob_s
+        s.append(s_new)
 
-		X_new = X_new.astype(int)
+        #############MH update with acceptance process#############
+        #proposal of X_new
+        #print(s_r, s_c)
 
-		# test
-		X_new = X_prev
-		ss_to_change = np.random.randint(no_of_positions)
-		r,c = np.unravel_index(ss_to_change, lattice_dim)
-		X_new[r][c] = np.random.randint(no_of_ss)
-		# end test
+        #we have X_prev and X_new as 3*3
+        #this value will be filled in iteration
+        X_new = np.zeros(np.shape(X_prev), dtype=int)
+        X_prop = X_prev.copy()
 
-		probs = []
-		for i in range(no_of_positions):
-			r,c = np.unravel_index(i, lattice_dim)
-			probs.append(conditional_likelihood(o,G,G.get_node(r,c),error_prob, X_new))			# append prob for every start position
+        #we need to perform it for all v's in v=no_of_positions
+        for x in range(no_of_positions):				# creating new sample
+            sample_ss = np.random.randint(no_of_ss)
+            #keep index for update
+            r,c = np.unravel_index(x, lattice_dim)
 
-		#probs_normalized = probs/np.sum(probs)
-		most_prob_s = np.argmax(probs)
-	
+            new = np.random.randint(1, no_of_ss+1) #from 1 to no_of_ss
+            old = int(X_prev[r][c])
 
-		#s_new_index = np.nonzero(np.random.multinomial(1, probs_normalized, size=1))[1][0]		#test normal distr
-		#new_prob = probs[s_new_index]
-		s_r,s_c = np.unravel_index(most_prob_s, lattice_dim)
-		s_new = G.get_node(s_r, s_c)
+            X_prop[r][c] = new
 
-		new_prob = probs[np.argmax(probs)]
-		old_prob = conditional_likelihood(o,G,s_prev,error_prob, X_prev) 
-		#new_prob = conditional_likelihood(o,G,s_new,error_prob, X_new)
-		ratio = new_prob/old_prob
+            #propose with s_new value
+            old_prob = conditional_likelihood(o,G,s_new,error_prob, X_prev)
+            new_prob = conditional_likelihood(o,G,s_new,error_prob, X_prop)
+            ratio = new_prob/old_prob
 
-		print(ratio)
-		if ratio <0:
-			print("_______ERROR!!!___________")
-		r = min(ratio, 1)
-
-		u = np.random.uniform(0.75,1)
-		if u < r:		#accept proposal
-			print("accept")
-			X.append(X_new)
-			X_prev = X_new
-			s.append(s_new)
-			s_prev = s_new
-			s_prev_index = most_prob_s
-			probabilities.append(new_prob)
-			accepted_n.append(n)
-
-	print("Accepted: " + str(len(probabilities)))
-	print(np.argmax(probabilities))
-	print(probabilities[np.argmax(probabilities)])
-	print(math.exp(max(probabilities)))
-	print(s[np.argmax(probabilities)])
-
-	s_index = [np.ravel_multi_index((s[i].row,s[i].col),lattice_dim) for i in range(len(s))]
-	X_test = [X[i][2][1] for i in range(len(X))]
-
-	#plt.plot(accepted_n, s_index)
-	#plt.show()
-
-	# the histogram of the data
-	#plt.figure(1)
-	plt.subplot(311)
-	n, bins, patches = plt.hist(s_index, 9)
-	plt.axis([0, 9, 0, 500])
-	plt.xlabel('Start position')
-	plt.ylabel('Accepted samples')
-	plt.title('Histogram of possible start positions')
-	plt.grid(True)
-
-	#plt.figure(2)
-	plt.subplot(312)
-
-	n, bins, patches = plt.hist(X_test, 3, facecolor='g')
-
-	plt.xlabel('(1,1) switch')
-	plt.ylabel('Accepted samples')
-	plt.title('Histogram of possible switches for (1,1)')
-	plt.axis([0, 3, 0, 1000])
-
-	plt.grid(True)
+            rate = min(ratio, 1)
+            u = np.random.uniform(0,1)
+            total_trial += 1
+            if u < rate:		#accept proposal
+                X_prev = X_prop.copy() #update X
+                X_new[r][c] = new #new value update
+                old_prob = new_prob
+                accepted_n.append(n)
+            else:
+                X_prop = X_prev.copy()
+                X_new[r][c] = old
 
 
-	plt.subplot(313)
-	plt.axis([0, 1000, 0, 9])
-	plt.plot(accepted_n, s_index)
-	plt.show()
+        #we keep old X if X is not accepted, update new X if accepted
+        X.append(X_new)
 
-	return s, X
+    print("Total acceptance rate for MH: ", len(accepted_n)/total_trial)
+
+    return s, X
+
 
 def gibbs(o, G, num_iter, error_prob=0.1):
-	s = [] # store samples for the start positions
-	X = [] # store switch states
-	X.append(sample_switch_states(G.lattice_size)) # generate initial switch state
-	s.append(sample_start_pos(G)) # set the initial start position as the one at G[0][0]
+    s = [] # store samples for the start positions
+    X = [] # store switch states
+    X.append(sample_switch_states(G.lattice_size)) # generate initial switch state
+    s.append(sample_start_pos(G)) # set the initial start position as the one at G[0][0]
+
+    #burn in rate
+    burn_in_rate = 0.4
+    burn_in_num = int(burn_in_rate * num_iter)
+
+    #s.append(G.get_node(1,0))
+    probabilities = []
+    probabilities.append(conditional_likelihood(o,G,s[0],error_prob, X[0]))
+
+    #variables created
+    lattice_dim = (G.lattice_size, G.lattice_size)		#lattice dimension, used for index conversion
+    no_of_positions = G.lattice_size **2		# number of possible positions
+    no_of_ss = G.lattice_size		# number of possible switch states {1,2,3}
+
+    X_count = np.ones((no_of_positions, len(X[0])))		# counts occurances of each switch state at each position
+    s_count = np.ones(no_of_positions)			# counts number of times each index is start position
+
+    accepted_n = []
+    accepted_n.append(0)
+
+    X_prev = np.array(X[0])		# initial sample of X
+    s_prev = s[0]
+    #s_prev_index = np.ravel_multi_index((s[0].row,s[0].col),lattice_dim)  # index of initial sample of start position
+
+    for n in range(num_iter + burn_in_num): #change back to num_iter
+        X_prev = X[-1]
+        #print(X_prev)
+        probs = []
+        for i in range(no_of_positions):
+            r,c = np.unravel_index(i, lattice_dim)
+            probs.append(conditional_likelihood(o,G,G.get_node(r,c),error_prob, X_prev))			# append prob for every start position
+
+        #for further iteration
+        probs = np.array(probs)
+        probs = probs/np.sum(probs) #NORMALIZATION
+
+        #############gibbs update without acceptance process#############
+        #print(probs)
+        #multinomial proposal
+        most_prob_s = np.argmax(np.random.multinomial(1,probs))
+        #print(most_prob_s)
+
+        #get new s based on our proposal
+        s_r,s_c = np.unravel_index(most_prob_s, lattice_dim)
+        s_new = G.get_node(s_r, s_c)
+        #s_prev_index = most_prob_s
+        s.append(s_new)
+
+        #now we do not need acceptance thing anymore
+        X_new = np.copy(X_prev)
+        pp = [] #to plot something... based on requirement
+
+        #we need to perform it for all v's in v=no_of_positions
+        for x in range(no_of_positions):				# creating new sample
+            sample_ss = np.random.randint(no_of_ss)
+            #keep index for update
+            r,c = np.unravel_index(x, lattice_dim) #3**3
+            tmp = []
+
+            for new in range(1, no_of_ss+1): #from 1 to no_of_ss)
+                #again multinomial sampling for each possible values
+                X_new[r][c] = new
+                tmp.append(conditional_likelihood(o,G,G.get_node(r,c),error_prob, X_new))
+
+            #normalize
+            new_prob = np.array(tmp)
+            new_prob = new_prob/np.sum(new_prob)
+            new = np.argmax(np.random.multinomial(1,new_prob))+1
+
+            X_new[r][c] = new
+
+            pp.append(new_prob)
+
+        #we anyway update new X as it is gibbs sampling
+        #print(X_new, X_prev)
+        X.append(X_new)
+        #print(X)
+        probabilities.append(pp)
+
+    #crop burn in phases
+    s = s[burn_in_num:]
+    X = X[burn_in_num:]
+
+    return s, X
+
+def block_gibbs(o, G, num_iter, error_prob=0.1):
+    s = [] # store samples for the start positions
+    X = [] # store switch states
+    X.append(sample_switch_states(G.lattice_size)) # generate initial switch state
+    s.append(sample_start_pos(G)) # set the initial start position as the one at G[0][0]
+
+    #copy and paste from our gibbs implementation for s1 part
+    #burn in rate
+    burn_in_rate = 0.4
+    burn_in_num = int(burn_in_rate * num_iter)
+
+    #s.append(G.get_node(1,0))
+    probabilities = []
+    #probabilities.append(conditional_likelihood(o,G,s[0],error_prob, X[0]))
+
+    #variables created
+    lattice_dim = (G.lattice_size, G.lattice_size)		#lattice dimension, used for index conversion
+    no_of_positions = G.lattice_size **2		# number of possible positions
+    no_of_ss = G.lattice_size		# number of possible switch states {1,2,3}
+
+    X_count = np.ones((no_of_positions, len(X[0])))		# counts occurances of each switch state at each position
+    s_count = np.ones(no_of_positions)			# counts number of times each index is start position
+
+    accepted_n = []
+    accepted_n.append(0)
+
+    X_prev = X[0]		# initial sample of X
+    s_prev = s[0]
+    #s_prev_index = np.ravel_multi_index((s[0].row,s[0].col),lattice_dim)  # index of initial sample of start position
+
+    loc = np.array([3,2,0,5,6,7,4,8,1])
+    locs = np.split(loc, no_of_ss) #not it is three parts
+    #print(locs)
+
+    for n in range(num_iter + burn_in_num): #change back to num_iter
+        X_prev = X[-1]
+        #print(X_prev)
+        probs = []
+        for i in range(no_of_positions):
+            r,c = np.unravel_index(i, lattice_dim)
+            probs.append(conditional_likelihood(o,G,G.get_node(r,c),error_prob, X_prev))			# append prob for every start position
+
+        #for further iteration
+        probs = np.array(probs)
+        probs = probs/np.sum(probs) #NORMALIZATION
+
+        #############gibbs update without acceptance process#############
+        #print(probs)
+        #multinomial proposal
+        most_prob_s = np.argmax(np.random.multinomial(1,probs))
+        #print(most_prob_s)
+
+        #get new s based on our proposal
+        s_r,s_c = np.unravel_index(most_prob_s, lattice_dim)
+        s_new = G.get_node(s_r, s_c)
+        #s_prev_index = most_prob_s
+        s.append(s_new)
+
+        #now we do not need acceptance thing anymore
+        X_new = np.copy(X_prev)
+
+        ########## BLOCKED GIBBS PART ##########
+        #we need to perform it for all v's in v=no_of_positions
+        #randomly re-allocate location
+        #loc = np.random.permutation(no_of_positions)
+        #locs = np.split(loc, no_of_ss) #not it is three parts
+
+        #generate possible combination of {1,2,3}
+        #all
+        perms = list(permutations([1, 2, 3]))
+
+        #for one block each
+        for l in locs:
+            #block update candidates
+            tmp = []
+            #each possible permutation
+            for perm in perms:
+                #try to apply permutation to X value
+
+                #three positions in a block
+                for idx, ll in enumerate(l):
+                    r,c = np.unravel_index(ll, lattice_dim) #3**3
+                    #generate X_new with three value in current permutation
+                    #print(r, c, idx)
+                    X_new[r][c] = perm[idx]
+
+                #now append probability of three value opdated
+                #print(r, c)
+                tmp.append(conditional_likelihood(o,G,G.get_node(r,c),error_prob, X_new))
+
+            #normalize
+            new_prob = np.array(tmp)
+            new_prob = new_prob/np.sum(new_prob)
+            new = np.argmax(np.random.multinomial(1,new_prob))
+
+            target_perm = perms[new]
+            #three positions in a block
+            for idx, ll in enumerate(l):
+                r,c = np.unravel_index(ll, lattice_dim) #3**3
+                #generate X_new with three value in current permutation
+                X_new[r][c] = target_perm[idx]
+
+        ########################################
+        #we anyway update new X as it is gibbs sampling
+        X.append(X_new)
+
+    #crop burn in phases
+    s = s[burn_in_num:]
+    X = X[burn_in_num:]
+
+    return s, X
 
 
-	probabilities = []
-	probabilities.append(conditional_likelihood(o,G,s[0],error_prob, X[0]))
+def diagnosis(R):
+    #Gelman-Rubin diagnostic
+    #reference: http://astrostatistics.psu.edu/RLectures/diagnosticsMCMC.pdf
 
-	#variables created
-	lattice_dim = (G.lattice_size, G.lattice_size)		#lattice dimension, used for index conversion
-	no_of_positions = G.lattice_size **2		# number of possible positions
-	no_of_ss = G.lattice_size		# number of possible switch states {1,2,3}
+    n = R.shape[1] #number of iterations
+    m = R.shape[0] #number of chains
 
-	X_count = np.ones((no_of_positions, len(X[0])))		# counts occurances of each switch state at each position
-	s_count = np.ones(no_of_positions)			# counts number of times each index is start position
+    #calculate basic thetas
+    theta_j = np.mean(R, axis=1)
+    theta_bar = np.mean(theta_j, axis=0)
 
-	accepted_n = []
-	accepted_n.append(0)
+    #calculate W
+    sj_square = 1/np.float(n-1)*np.sum(np.array([np.power((R[chain]-theta_j[chain]), 2) \
+                                           for chain in range(m)]), axis=1)
+    W = 1/np.float(m) * np.sum(sj_square, axis=0)
+    #calculate B
+    B = n/np.float(m-1)*np.sum(np.power(theta_j-theta_bar, 2), axis=0)
 
-	X_prev = X[0]		# initial sample of X
-	s_prev = s[0]
-	s_prev_index = np.ravel_multi_index((s[0].row,s[0].col),lattice_dim)  # index of initial sample of start position
+    #Finally get V value
+    V_hat = (1-1/n)*W + 1/n*B
 
-	for n in range(num_iter):  #num_iter
-		print("n: " + str(n))
+    #R
+    R_hat = np.sqrt(V_hat/W)
 
-		X_new = X_prev
-		ss_to_change = n % no_of_positions
-		#ss_to_change = np.random.randint(no_of_positions)
-		r,c = np.unravel_index(ss_to_change, lattice_dim)
-		X_new[r][c] = np.random.randint(no_of_ss)
-
-		probs = []
-		for i in range(no_of_positions):
-			r,c = np.unravel_index(i, lattice_dim)
-			probs.append(conditional_likelihood(o,G,G.get_node(r,c),error_prob, X_new))			# append prob for every start position
-
-		probs_normalized = probs/np.sum(probs)
-		most_prob_s = np.argmax(probs)
-	
-
-		#s_new_index = np.nonzero(np.random.multinomial(1, probs_normalized, size=1))[1][0]		#test normal distr
-		#new_prob = probs[s_new_index]
-		s_r,s_c = np.unravel_index(most_prob_s, lattice_dim)
-		s_new = G.get_node(s_r, s_c)
-
-		new_prob = probs[np.argmax(probs)]
-		old_prob = conditional_likelihood(o,G,s_prev,error_prob, X_prev) 
-		#new_prob = conditional_likelihood(o,G,s_new,error_prob, X_new)
-		ratio = new_prob/old_prob
-
-		print(ratio)
-		r = min(ratio, 1)
-
-		u = np.random.uniform(0,1)
-		if u < r:		#accept proposal
-			print("accept")
-			X.append(X_new)
-			X_prev = X_new
-			s.append(s_new)
-			s_prev = s_new
-			s_prev_index = most_prob_s
-			probabilities.append(new_prob)
-			accepted_n.append(n)
-
-	print("Accepted: " + str(len(probabilities)))
-	print(np.argmax(probabilities))
-	print(probabilities[np.argmax(probabilities)])
-	print(math.exp(max(probabilities)))
-	print(s[np.argmax(probabilities)])
-
-	s_index = [np.ravel_multi_index((s[i].row,s[i].col),lattice_dim) for i in range(len(s))]
-	X_test = [X[i][2][1] + 1 for i in range(len(X))]
-
-	#plt.plot(accepted_n, s_index)
-	#plt.show()
-
-	# the histogram of the data
-	#plt.figure(1)
-	plt.subplot(311)
-	n, bins, patches = plt.hist(s_index, 9)
-	plt.axis([0, 9, 0, 500])
-	plt.xlabel('Start position')
-	plt.ylabel('Accepted samples')
-	plt.title('Histogram of possible start positions')
-	plt.grid(True)
-
-	#plt.figure(2)
-	plt.subplot(312)
-
-	n, bins, patches = plt.hist(X_test, 3, facecolor='g')
-
-	plt.xlabel('(1,1) switch')
-	plt.ylabel('Accepted samples')
-	plt.title('Histogram of possible switches for (1,1)')
-	plt.axis([0, 3, 0, 1000])
-
-	plt.grid(True)
-
-
-	plt.subplot(313)
-	plt.axis([0, 1000, 0, 9])
-	plt.plot(accepted_n, s_index)
-	plt.show()
-
-	return s, X
-
-def block_gibbs(o, G, num_iter, error_prob=0.1):		#blocked gibbs sampling
-	s = [] # store samples for the start positions
-	X = [] # store switch states
-	X.append(sample_switch_states(G.lattice_size)) # generate initial switch state
-	s.append(sample_start_pos(G)) # set the initial start position as the one at G[0][0]
-	for n in range(num_iter):
-		pass
-	return s, X
+    return R_hat
 
 # generate sample graph and observations
 def main():
@@ -374,27 +391,121 @@ def main():
 	p = 0.1				# probability of error
 	G, X_truth, s_truth, o = generate_data(seed, n_lattice, T, p)   # nothing to be done here?
 	print(o)				#MAKE NOT COMMENT
-	#print(X_truth)				MAKE NOT COMMENT
-	#print(s_truth[1:20])		MAKE NOT COMMENT
-
+	print(X_truth)				#MAKE NOT COMMENT
+	print(s_truth[1:20])		#MAKE NOT COMMENT
 
 	# randomize the switch states -- get initial state
 	X = sample_switch_states(n_lattice)
 
 	# infer s[0] and switch states given o and G
 	num_iter = 1000
-	s, X = mh_w_gibbs(o, G, num_iter, p)
 
-	#s2, X2 = gibbs(o, G, num_iter, p)
-	
+	print("Calculating MH_Gibbs")
+	s1, X1 = mh_w_gibbs(o, G, num_iter, p)
+	print("Calculating Gibbs")
+	s2, X2 = gibbs(o, G, num_iter, p)
+	print("Calculating Blocked Gibbs")
+	s3, X3 = block_gibbs(o, G, num_iter, p)
 
 	# YOUR CODE:
-	# analyze s, X by comparing to the ground truth
-	# check for convergence
+	#####plotting area
+    #We commented in all plt.show() for submission
+    #Grader can comment them out to check our result
 
-	#conditional_likelihood(o,G,s,p)
+	s_lists = [s1, s2, s3]
+	X_lists = [X1, X2, X3]
+	labels = ["MH_Gibbs", "Gibbs", "Blocked"]
+
+	# 1. plot histogram for each algorithm
+	print("Plotting histograms")
+	for idx in range(3):
+	    lattice_dim = (G.lattice_size, G.lattice_size)
+	    res = []
+
+	    default_set = {0: 0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0}
+
+	    for ss in s_lists[idx]:
+	        default_set[np.ravel_multi_index((ss.row, ss.col), lattice_dim)] += 1
+
+	    res = pd.Series(default_set)
+
+	    res.index = ['(0,0)','(0,1)','(0,2)','(1,0)','(1,1)','(1,2)','(2,0)','(2,1)','(2,2)']
+	    res.plot(kind='bar', fontsize=20, figsize = (8,4), legend=False, title='Histogram of possible start positions for {}'.format(labels[idx]))
+
+	#plt.show()
+
+	#2. hit rate
+	print("Calculating hit rate")
+	X_truth_flat = np.array(X_truth).flatten()
+	print("TRUTH: ", X_truth_flat)
+
+	for idx in range(3):
+		collection = []
+		for i in X_lists[idx]:
+			collection.append(np.array(i).flatten())
+		collection = pd.DataFrame(collection)
+
+		hit_rate = []
+		probable = []
+		for i in collection.columns:
+		    hit_rate.append( np.sum(collection[i] == X_truth_flat[i])/len(collection[i]))
+		    probable.append(collection[i].mode()[0])
+		#get hit rate
+		hit_rate = np.array(hit_rate)
+
+		#get accuracy with most prevalent value
+		accuracy = probable == X_truth_flat
+
+		plt.plot(hit_rate, label=labels[idx])
+		plt.legend()
+		plt.axhline(y=1/3, color='r')
+		plt.xticks(range(9), ['(0,0)','(0,1)','(0,2)','(1,0)','(1,1)','(1,2)','(2,0)','(2,1)','(2,2)'])
+		plt.xlabel("labels")
+		plt.ylabel("probability")
+
+		print("======= {} =======".format(labels[idx]))
+		print("Accuracy: ", accuracy)
+		print("Hit rate: ", hit_rate)
+		print("Prediction: ", probable)
+
+	#plt.show()
+
+	# 2. check for convergence
+	# it takes a lot of time so that we comment them in
+	print("Chekcing convergence (commented in)")
+	"""
+	multiple_models = [[mh_w_gibbs(o, G, num_iter, p) for _ in range(10)],
+                   [gibbs(o, G, num_iter, p) for _ in range(10)],
+                   [block_gibbs(o, G, num_iter, p) for _ in range(10)]]
+
+	for idx, multiple_gibbs in enumerate(multiple_models):
+	    gibbs_new = np.zeros([10, 1001, 10])
+	    #each model
+	    for idx_i, i in enumerate(multiple_gibbs):
+	        #j = each value
+	        for idx_j, j in enumerate(i):
+	            #s
+	            if idx_j == 0:
+	                for idx_k, k in enumerate(j):
+	                    gibbs_new[idx_i, idx_k, 0] = np.ravel_multi_index((k.row, k.col),lattice_dim)
+	            else:
+	                for idx_k, k in enumerate(j):
+	                    val = np.array(k).flatten()
+	                    for x, l in enumerate(val):
+	                        #print(k)
+	                        gibbs_new[idx_i, idx_k, x+1] = l
+	    diagnosis_results = np.array([ diagnosis(gibbs_new[:,0:t,:]) for t in range(2,num_iter)])
+	    plt.figure(figsize=(8,6))
+	    plt.title('Diagnosis result(Convergence rate) using Gelman-Rubin diagnostic for {}'.format(labels[idx]))
+	    for n in range(10): # for each position plot a new graph
+	        if n == 0:
+	            plt.plot(diagnosis_results[:,n], label='s_1')
+	        else:
+	            r,c = np.unravel_index(n-1, (3,3))
+	            plt.plot(diagnosis_results[:,n], label='x[{},{}]'.format(r, c))
+	    plt.legend(loc=1)
+	plt.show()
+	"""
 
 if __name__ == '__main__':
 	main()
-
-
